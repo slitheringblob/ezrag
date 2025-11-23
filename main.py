@@ -19,10 +19,11 @@ def get_store():
 
 
 def main():
-    st.title("Simple Document RAG (Chroma DB)")
+    st.title("EZRAG")
     st.write("Place markdown files in the `documents/` folder. The app will read, chunk, embed and store them locally (first run).")
 
-    store = get_store()
+    with st.spinner("Loading vector collection (first run may take a minute)..."):
+        store = get_store()
 
     # Sidebar controls
     st.sidebar.header("Settings")
@@ -35,7 +36,7 @@ def main():
         with st.spinner("Resetting collection and re-ingesting..."):
             store.reset_collection()
         st.success("Re-ingest complete.")
-        st.experimental_rerun()
+        st.rerun()
 
     # Query input
     query = st.text_input("Enter your question:", placeholder="e.g., What are the main topics?")
