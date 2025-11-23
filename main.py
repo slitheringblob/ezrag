@@ -1,90 +1,75 @@
 import streamlit as st
-import os
-from glob import glob
-from milvus_impl import VectorStore
+from milvus_impl_gpt import VectorStore
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+st.set_page_config(page_title="Simple Document RAG", layout="wide")
+
+
+@st.cache_resource(show_spinner=False)
+def get_store():
+    # VectorStore initialization may be slow (model load). Cache it across reruns.
+    return VectorStore(path="ezrag_milvus_lite.db", collection_name="ezrag_collection", dim=384)
+
 
 def main():
-    st.title("Simple Document RAG System")
-    st.write("Ask questions about your document collection!")
-    
-    # Initialize RAG system
-    if 'rag' not in st.session_state:
-        with st.spinner("Loading RAG system..."):
-            st.session_state.rag = VectorStore()
-    
-    # Show document statistics
-    if st.session_state.rag.documents:
-        st.sidebar.header("Document Stats")
-        st.sidebar.write(f"Total chunks: {len(st.session_state.rag.documents)}")
-        
-        # Count by type
-        type_count = {}
-        for doc in st.session_state.rag.documents:
-            doc_type = doc['type']
-            type_count[doc_type] = type_count.get(doc_type, 0) + 1
-        
-        for doc_type, count in type_count.items():
-            st.sidebar.write(f"- {doc_type}: {count} chunks")
-    
-    # Query input
-    query = st.text_input("Enter your question:", placeholder="e.g., What are the main topics in the documents?")
-    
-    if query:
-        with st.spinner("Searching through documents..."):
-            results = st.session_state.rag.search(query, top_k=5)
-        
-        if results:
-            st.subheader(f" Found {len(results)} relevant chunks:")
-            
-            for i, result in enumerate(results, 1):
-                with st.expander(f" {result['source']} - Chunk {result['chunk_number']} (Relevance: {1/(1+result['distance']):.2%})"):
-                    st.write(result['content'])
-                    
-                    # Add metadata
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.caption(f"**Source:** {result['source']}")
-                    with col2:
-                        st.caption(f"**Type:** {result['type']}")
-                    with col3:
-                        st.caption(f"**Chunk:** {result['chunk_number']}")
-        else:
-            st.warning("No relevant documents found. Try a different query.")
-    
-    # File management section
-    st.sidebar.header("Document Management")
-    st.sidebar.write("Add .md files to the 'documents' directory")
-    
-    # Show current files
-    documents_dir = "documents"
-    if os.path.exists(documents_dir):
-        current_files = glob.glob(os.path.join(documents_dir, "*.md"))
-        if current_files:
-            st.sidebar.write("**Current files:**")
-            for file in current_files:
-                st.sidebar.write(f"- {os.path.basename(file)}")
-        else:
-            st.sidebar.write("No markdown files found.")
-    
-    # Refresh button
-    if st.sidebar.button("Refresh Documents"):
-        st.session_state.pop('rag', None)
-        st.rerun()
-    
-    # Example queries
-    st.sidebar.header("💡 Example Queries")
-    example_queries = [
-        "What are the main topics?",
-        "Summarize the key points",
-        "Find interesting facts",
-        "What technology is discussed?",
-        "List historical events mentioned"
-    ]
-    
-    for example in example_queries:
-        if st.sidebar.button(example):
-            st.experimental_set_query_params(query=example)
-            st.rerun()
+    st.title("Simple Document RAG (Milvus Lite)")
+    st.write("Place markdown files in the `documents/` folder. The app will read, chunk, embed and store them locally (first run).")
 
-if __name__=="__main__":
+    store = get_store()
+
+    # Sidebar controls
+    st.sidebar.header("Settings")
+    top_k = st.sidebar.slider("Top K results", min_value=1, max_value=20, value=5, step=1)
+    refresh = st.sidebar.button("Re-ingest documents (drop & rebuild collection)")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("Documents folder: `./documents/`")
+
+    if refresh:
+        with st.spinner("Resetting collection and re-ingesting..."):
+            store.reset_collection()
+            # re-prepare and insert
+            store.documents = store._prepare_documents()
+            store._insert_data_if_needed()
+        st.success("Re-ingest complete.")
+        st.experimental_rerun()
+
+    # Query input
+    query = st.text_input("Enter your question:", placeholder="e.g., What are the main topics?")
+
+    if query:
+        with st.spinner("Searching..."):
+            results = store.search(query, top_k=top_k)
+
+        if results:
+            st.subheader(f"Found {len(results)} chunks (top_k={top_k}):")
+            for i, r in enumerate(results, start=1):
+                # compute a simple similarity percentage if distance is available
+                similarity = None
+                if r.get("distance") is not None:
+                    try:
+                        similarity = 1 / (1 + float(r["distance"]))
+                    except Exception:
+                        similarity = None
+
+                header = f"{r.get('source', 'unknown')} — chunk {r.get('chunk_number', '?')}"
+                if similarity is not None:
+                    header += f" — relevance: {similarity:.2%}"
+
+                with st.expander(header):
+                    st.write(r.get("content", ""))
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.caption(f"Source: {r.get('source')}")
+                    with c2:
+                        st.caption(f"Type: {r.get('type')}")
+                    with c3:
+                        st.caption(f"Chunk: {r.get('chunk_number')}")
+        else:
+            st.info("No results found. Try increasing Top K or re-ingest if you added new documents.")
+
+
+if __name__ == "__main__":
     main()
