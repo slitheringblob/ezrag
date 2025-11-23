@@ -12,9 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 class VectorStore:
-    """
-    Simple local RAG helper backed by Chroma DB with SentenceTransformer embeddings.
-    """
 
     def __init__(
         self,
@@ -45,9 +42,6 @@ class VectorStore:
         if auto_ingest:
             self.ingest_documents()
 
-    # ------------------------------------------------------------------ #
-    # Public API
-    # ------------------------------------------------------------------ #
     def ingest_documents(self, force: bool = False) -> None:
         """
         Load markdown/text files, chunk, embed and store in Chroma.
@@ -139,9 +133,6 @@ class VectorStore:
         )
         self.ingest_documents(force=True)
 
-    # ------------------------------------------------------------------ #
-    # Internal helpers
-    # ------------------------------------------------------------------ #
     def _prepare_documents(self) -> List[Dict]:
         documents = []
         patterns = ("*.md", "*.markdown", "*.txt")
@@ -197,15 +188,16 @@ class VectorStore:
         return documents
 
     def _split_markdown_into_chunks(self, content: str) -> List[str]:
-        """
-        Chunk markdown first by headers, then by paragraphs/sentences as fallback.
-        """
+
+        # use markdown headers as chunk boundaries #, ##, ###
         header_pattern = r"(?=\n#{1,3}\s+)"
         sections = re.split(header_pattern, content)
         chunks = [section.strip() for section in sections if section.strip()]
 
+        # fallback splitting using double newlines
         if len(chunks) <= 1:
             chunks = [p.strip() for p in content.split("\n\n") if p.strip()]
+
 
         if len(chunks) <= 1:
             sentences = re.split(r"[.!?]+", content)
