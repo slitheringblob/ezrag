@@ -1,5 +1,5 @@
 import streamlit as st
-from milvus_impl_gpt import VectorStore
+from chroma_impl import VectorStore
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -11,11 +11,15 @@ st.set_page_config(page_title="Simple Document RAG", layout="wide")
 @st.cache_resource(show_spinner=False)
 def get_store():
     # VectorStore initialization may be slow (model load). Cache it across reruns.
-    return VectorStore(path="ezrag_milvus_lite.db", collection_name="ezrag_collection", dim=384)
+    return VectorStore(
+        documents_dir="documents",
+        persist_directory="chroma_store",
+        collection_name="ezrag_collection",
+    )
 
 
 def main():
-    st.title("Simple Document RAG (Milvus Lite)")
+    st.title("Simple Document RAG (Chroma DB)")
     st.write("Place markdown files in the `documents/` folder. The app will read, chunk, embed and store them locally (first run).")
 
     store = get_store()
@@ -30,9 +34,6 @@ def main():
     if refresh:
         with st.spinner("Resetting collection and re-ingesting..."):
             store.reset_collection()
-            # re-prepare and insert
-            store.documents = store._prepare_documents()
-            store._insert_data_if_needed()
         st.success("Re-ingest complete.")
         st.experimental_rerun()
 
